@@ -125,31 +125,7 @@ const {
       auth: state,
       version
     });
-
-    // Handle pairing code generation
-    // Replace the pairing code section in your connectToWA() function with this:
-
-// Handle pairing code generation
-if (sessionGenerationMode && !conn.authState.creds.registered) {
-  console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
-  console.log('│  PAIRING CODE MODE ACTIVE  │');
-  console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n');
-  
-  // Automatically use the predefined number
-  const phoneNumber = '94765749332';
-  console.log(`Using phone number: ${phoneNumber}`);
-  
-  try {
-    pairingCode = await conn.requestPairingCode(phoneNumber);
-    console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
-    console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
-    console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
-    console.log('\n📱 Enter this code in WhatsApp:');
-    console.log('   Linked Devices > Link a Device > Link with phone number\n');
-  } catch (error) {
-    console.error('Error requesting pairing code:', error);
-  }
-}  
+      
     conn.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect } = update;
       
@@ -210,8 +186,54 @@ if (sessionGenerationMode && !conn.authState.creds.registered) {
         });
       }
     });
+
+    // Handle pairing code generation
+    if (sessionGenerationMode) {
+      conn.ev.on('connection.update', async (update) => {
+        const { connection, qr } = update;
+        
+        // Wait for the connection to be in 'connecting' state and credentials not registered
+        if (connection === 'connecting' && !conn.authState.creds.registered) {
+          console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+          console.log('│  PAIRING CODE MODE ACTIVE  │');
+          console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n');
+          
+          // Automatically use the predefined number
+          const phoneNumber = '94765749332';
+          console.log(`Using phone number: ${phoneNumber}`);
+          
+          // Wait a bit for the connection to stabilize
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          try {
+            pairingCode = await conn.requestPairingCode(phoneNumber);
+            console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+            console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
+            console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
+            console.log('\n📱 Enter this code in WhatsApp:');
+            console.log('   Linked Devices > Link a Device > Link with phone number\n');
+          } catch (error) {
+            console.error('Error requesting pairing code:', error);
+            console.log('\nRetrying in 5 seconds...');
+            setTimeout(async () => {
+              try {
+                pairingCode = await conn.requestPairingCode(phoneNumber);
+                console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+                console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
+                console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
+                console.log('\n📱 Enter this code in WhatsApp:');
+                console.log('   Linked Devices > Link a Device > Link with phone number\n');
+              } catch (retryError) {
+                console.error('Retry failed:', retryError);
+              }
+            }, 5000);
+          }
+        }
+      });
+    }
     
     conn.ev.on('creds.update', saveCreds);
+
 
   //==============================
 
