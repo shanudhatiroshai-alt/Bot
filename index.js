@@ -127,36 +127,29 @@ const {
     });
 
     // Handle pairing code generation
-    if (sessionGenerationMode && !conn.authState.creds.registered) {
-      console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
-      console.log('│  PAIRING CODE MODE ACTIVE  │');
-      console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n');
-      
-      // Wait for phone number input
-      const readline = require('readline');
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
+    // Replace the pairing code section in your connectToWA() function with this:
 
-      rl.question('Enter your WhatsApp phone number (with country code, e.g., 94765749332): ', async (phoneNumber) => {
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-        
-        try {
-          pairingCode = await conn.requestPairingCode(phoneNumber);
-          console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
-          console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
-          console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
-          console.log('\n📱 Enter this code in WhatsApp:');
-          console.log('   Linked Devices > Link a Device > Link with phone number\n');
-        } catch (error) {
-          console.error('Error requesting pairing code:', error);
-        }
-        
-        rl.close();
-      });
-    }
-      
+// Handle pairing code generation
+if (sessionGenerationMode && !conn.authState.creds.registered) {
+  console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+  console.log('│  PAIRING CODE MODE ACTIVE  │');
+  console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n');
+  
+  // Automatically use the predefined number
+  const phoneNumber = '94765749332';
+  console.log(`Using phone number: ${phoneNumber}`);
+  
+  try {
+    pairingCode = await conn.requestPairingCode(phoneNumber);
+    console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+    console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
+    console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
+    console.log('\n📱 Enter this code in WhatsApp:');
+    console.log('   Linked Devices > Link a Device > Link with phone number\n');
+  } catch (error) {
+    console.error('Error requesting pairing code:', error);
+  }
+}  
     conn.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect } = update;
       
