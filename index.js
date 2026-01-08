@@ -65,55 +65,138 @@ const {
   // Clear the temp directory every 5 minutes
   setInterval(clearTempDir, 5 * 60 * 1000);
   
-  //===================SESSION-AUTH============================
-if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
-if(!config.SESSION_ID) return console.log('Please add your session to SESSION_ID env !!')
-const sessdata = config.SESSION_ID.replace("SHANU-MD~", '');
-const filer = File.fromURL(`https://mega.nz/file/${sessdata}`)
-filer.download((err, data) => {
-if(err) throw err
-fs.writeFile(__dirname + '/sessions/creds.json', data, () => {
-console.log("Session downloaded ✅")
-})})}
+  const express = require("express");
+  const app = express();
+  const port = process.env.PORT || 9090;
 
-const express = require("express");
-const app = express();
-const port = process.env.PORT || 9090;
+  // Session pairing code storage
+  let pairingCode = null;
+  let sessionGenerationMode = false;
+
+  //===================SESSION-AUTH============================
   
+  // Check if session exists
+  if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
+    // Check if SESSION_ID is provided in config
+    if (config.SESSION_ID && config.SESSION_ID !== '') {
+      console.log('Loading session from SESSION_ID...');
+      try {
+        const sessdata = config.SESSION_ID.replace("SHANU-MD~", '');
+        const filer = File.fromURL(`https://mega.nz/file/${sessdata}`);
+        filer.download((err, data) => {
+          if (err) {
+            console.log('Failed to download session from MEGA. Starting pairing mode...');
+            sessionGenerationMode = true;
+          } else {
+            fs.writeFile(__dirname + '/sessions/creds.json', data, () => {
+              console.log("Session downloaded ✅");
+            });
+          }
+        });
+      } catch (error) {
+        console.log('Error loading SESSION_ID. Starting pairing mode...');
+        sessionGenerationMode = true;
+      }
+    } else {
+      // No session exists, enable pairing mode
+      console.log('No session found. Starting pairing code generation mode...');
+      sessionGenerationMode = true;
+    }
+  }
+
   //=============================================
   
   async function connectToWA() {
-  console.log("Connecting to WhatsApp ⏳️...");
-  const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/sessions/')
-  var { version } = await fetchLatestBaileysVersion()
-  
-  const conn = makeWASocket({
-          logger: P({ level: 'silent' }),
-          printQRInTerminal: false,
-          browser: Browsers.macOS("Firefox"),
-          syncFullHistory: true,
-          auth: state,
-          version
-          })
+    console.log("Connecting to WhatsApp ⏳️...");
+    
+    // Ensure sessions directory exists
+    if (!fs.existsSync(__dirname + '/sessions')) {
+      fs.mkdirSync(__dirname + '/sessions');
+    }
+    
+    const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/sessions/');
+    var { version } = await fetchLatestBaileysVersion();
+    
+    const conn = makeWASocket({
+      logger: P({ level: 'silent' }),
+      printQRInTerminal: false,
+      browser: Browsers.macOS("Firefox"),
+      syncFullHistory: true,
+      auth: state,
+      version
+    });
+
+    // Handle pairing code generation
+    if (sessionGenerationMode && !conn.authState.creds.registered) {
+      console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+      console.log('│  PAIRING CODE MODE ACTIVE  │');
+      console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n');
       
-  conn.ev.on('connection.update', (update) => {
-  const { connection, lastDisconnect } = update
-  if (connection === 'close') {
-  if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut) {
-  connectToWA()
-  }
-  } else if (connection === 'open') {
-  console.log('🧬 Installing Plugins')
-  const path = require('path');
-  fs.readdirSync("./plugins/").forEach((plugin) => {
-  if (path.extname(plugin).toLowerCase() == ".js") {
-  require("./plugins/" + plugin);
-  }
-  });
-  console.log('Plugins installed successful ✅')
-  console.log('Bot connected to whatsapp ✅')
-  
-  let up = `╭─〔 *🤖 SHANU-MD BOT* 〕  
+      // Wait for phone number input
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+
+      rl.question('Enter your WhatsApp phone number (with country code, e.g., 94765749332): ', async (phoneNumber) => {
+        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+        
+        try {
+          pairingCode = await conn.requestPairingCode(phoneNumber);
+          console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+          console.log(`│  YOUR PAIRING CODE: ${pairingCode}  │`);
+          console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
+          console.log('\n📱 Enter this code in WhatsApp:');
+          console.log('   Linked Devices > Link a Device > Link with phone number\n');
+        } catch (error) {
+          console.error('Error requesting pairing code:', error);
+        }
+        
+        rl.close();
+      });
+    }
+      
+    conn.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect } = update;
+      
+      if (connection === 'close') {
+        if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut) {
+          connectToWA();
+        }
+      } else if (connection === 'open') {
+        console.log('🧬 Installing Plugins');
+        const path = require('path');
+        fs.readdirSync("./plugins/").forEach((plugin) => {
+          if (path.extname(plugin).toLowerCase() == ".js") {
+            require("./plugins/" + plugin);
+          }
+        });
+        console.log('Plugins installed successful ✅');
+        console.log('Bot connected to whatsapp ✅');
+
+        // If this was a new session, generate SESSION_ID
+        if (sessionGenerationMode) {
+          try {
+            const sessionData = fs.readFileSync(__dirname + '/sessions/creds.json');
+            const sessionBase64 = sessionData.toString('base64');
+            const sessionId = 'SHANU-MD~' + sessionBase64;
+            
+            console.log('\n╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮');
+            console.log('│          SESSION ID GENERATED!              │');
+            console.log('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯');
+            console.log('\n📝 Your SESSION_ID:\n');
+            console.log(sessionId);
+            console.log('\n💾 Save this SESSION_ID in your config/environment variables');
+            console.log('⚠️  Keep it secure and do not share it!\n');
+            
+            sessionGenerationMode = false;
+          } catch (error) {
+            console.error('Error generating SESSION_ID:', error);
+          }
+        }
+        
+        let up = `╭─〔 *🤖 SHANU-MD BOT* 〕  
 ├─▸ *Ultra Super Fast Powerfull ⚠️*  
 │     *World Best BOT SHANU-MD* 
 ╰─➤ *Your Smart WhatsApp Bot is Ready To use 🍁!*  
@@ -128,10 +211,14 @@ const port = process.env.PORT || 9090;
 │    https://github.com/Shanudhatirosh/SHANU-XMD  
 ╰─🚀 *POWERED BY SHANU TECHX*`;
 
-    conn.sendMessage(conn.user.id,{ image: { url: `https://i.postimg.cc/8CqG2Bm2/FB-IMG-1760348539551.jpg` }, caption: up })
-  }
-  })
-  conn.ev.on('creds.update', saveCreds)
+        conn.sendMessage(conn.user.id, { 
+          image: { url: `https://i.postimg.cc/8CqG2Bm2/FB-IMG-1760348539551.jpg` }, 
+          caption: up 
+        });
+      }
+    });
+    
+    conn.ev.on('creds.update', saveCreds);
 
   //==============================
 
@@ -784,9 +871,11 @@ if (isBanned) return; // Ignore banned users completely
   }
   
   app.get("/", (req, res) => {
-  res.send("SHANU MD STARTED ✅");
+    res.send("SHANU MD STARTED ✅");
   });
+  
   app.listen(port, () => console.log(`Server listening on port http://localhost:${port}`));
+  
   setTimeout(() => {
-  connectToWA()
+    connectToWA()
   }, 4000);
